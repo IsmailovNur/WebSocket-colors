@@ -20,7 +20,7 @@ const connectedClients: WebSocket[] = [];
 let pixelsHistory: Pixel[] = [];
 
 
-router.ws("/chat", (ws, req, res) => {
+router.ws("/colors", (ws, req, res) => {
   connectedClients.push(ws);
   console.log("client connected", connectedClients.length);
 
