@@ -4,4 +4,6 @@ export interface Pixel {
   color: string;
 }
 
-export type IncomingMessage = { type: 'DRAW_POINTS'; payload: Pixel[] };
+export type IncomingMessage =
+  | { type: "DRAW_POINTS"; payload: Pixel[] }
+  | { type: "CLEAR" };

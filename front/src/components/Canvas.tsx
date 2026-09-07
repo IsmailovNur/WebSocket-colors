@@ -1,6 +1,5 @@
-import { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Box, Button, Container, Paper, Typography } from "@mui/material";
-import React from "react";
 
 interface Pixel {
   x: number;
@@ -22,19 +21,13 @@ const COLORS = [
 
 export const Canvas = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+
+  const currentStrokeRef = useRef<Pixel[]>([]);
 
   const [selectedColor, setSelectedColor] = useState<string>(COLORS[0]);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
 
-  const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    };
-  };
 
   const drawCircle = (ctx: CanvasRenderingContext2D, pixel: Pixel) => {
     ctx.beginPath();
@@ -44,34 +37,7 @@ export const Canvas = () => {
     ctx.closePath();
   };
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    setIsDrawing(true);
-    const { x, y } = getCanvasCoordinates(e);
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-
-    if (ctx) {
-      drawCircle(ctx, { x, y, color: selectedColor });
-    }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing) return;
-
-    const { x, y } = getCanvasCoordinates(e);
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-
-    if (ctx) {
-      drawCircle(ctx, { x, y, color: selectedColor });
-    }
-  };
-
-  const handleMouseUp = () => {
-    setIsDrawing(false);
-  };
-
-  const handleClear = () => {
+  const clearLocalCanvas = () => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (ctx && canvas) {
@@ -79,9 +45,107 @@ export const Canvas = () => {
     }
   };
 
+  useEffect(() => {
+    const socket = new WebSocket("ws://localhost:8888/colors");
+    socketRef.current = socket;
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext("2d");
+
+        if (!ctx) return;
+
+        if (data.type === "INIT") {
+          clearLocalCanvas();
+          data.payload.forEach((pixel: Pixel) => drawCircle(ctx, pixel));
+        } else if (data.type === "NEW_POINTS") {
+          data.payload.forEach((pixel: Pixel) => drawCircle(ctx, pixel));
+        } else if (data.type === "CLEAR") {
+          clearLocalCanvas();
+        }
+      } catch (err) {
+        console.error("Ошибка чтения сообщения WebSocket:", err);
+      }
+    };
+    return () => {
+      socket.close();
+    };
+  }, []);
+
+
+  const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return {x: 0, y: 0};
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+  };
+
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsDrawing(true);
+    const {x, y} = getCanvasCoordinates(e);
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+
+    const newPixel: Pixel = {x, y, color: selectedColor};
+
+    currentStrokeRef.current = [newPixel];
+
+    if (ctx) {
+      drawCircle(ctx, newPixel);
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+
+    const {x, y} = getCanvasCoordinates(e);
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+
+    const newPixel: Pixel = {x, y, color: selectedColor};
+
+    currentStrokeRef.current.push(newPixel);
+
+    if (ctx) {
+      drawCircle(ctx, newPixel);
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+
+    if (
+      socketRef.current && currentStrokeRef.current.length > 0
+    ) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: "DRAW_POINTS",
+          payload: currentStrokeRef.current,
+        })
+      );
+    }
+
+    currentStrokeRef.current = [];
+  };
+
+  const handleClear = () => {
+    socketRef.current.send(
+      JSON.stringify({
+        type: "CLEAR",
+      })
+    );
+  };
+
   return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
-      <Paper sx={{ p: 3 }}>
+    <Container maxWidth="md" sx={{py: 4}}>
+      <Paper sx={{p: 3}}>
         <Box
           sx={{
             mb: 2,
@@ -112,14 +176,14 @@ export const Canvas = () => {
           <Button
             variant="outlined"
             color="error"
-            sx={{ ml: "auto" }}
+            sx={{ml: "auto"}}
             onClick={handleClear}
           >
             Clear
           </Button>
         </Box>
 
-        <Box sx={{ display: "inline-block", borderRadius: 1 }}>
+        <Box sx={{display: "inline-block", borderRadius: 1}}>
           <canvas
             ref={canvasRef}
             width={800}

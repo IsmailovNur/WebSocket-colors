@@ -49,12 +49,20 @@ router.ws("/colors", (ws, req, res) => {
             })
           );
         });
-      }
+      } else if (decodedMessage.type === "CLEAR") {
+        pixelsHistory = [];
 
+        connectedClients.forEach((client) => {
+          client.send(
+            JSON.stringify({
+              type: "CLEAR",
+            })
+          );
+        });
+      }
     } catch (err) {
       ws.send(JSON.stringify({error: "invalid message", err: err}));
     }
-
   });
 
   ws.on("close", () => {
